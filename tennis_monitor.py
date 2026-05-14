@@ -2,21 +2,57 @@ import hashlib
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 from urllib.parse import quote
 
 import requests
+
+
+def load_dotenv(dotenv_path: str = ".env") -> None:
+    env_file = Path(__file__).resolve().parent / dotenv_path
+    if not env_file.exists():
+        return
+
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if not key or key in os.environ:
+            continue
+
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+
+        os.environ[key] = value
+
+
+load_dotenv()
 
 
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "20"))  # 轮询间隔，秒
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
 
 # 你要监控的目标
-TARGET_DATE = os.getenv("TARGET_DATE", "2026-05-15")
 # 留空表示监控所有场地，例如：TARGET_COURTS=1号场,2号场
 TARGET_COURTS = [x.strip() for x in os.getenv("TARGET_COURTS", "").split(",") if x.strip()]
-# 默认只监控晚上 8-9 点和 9-10 点
-TARGET_SLOTS = [x.strip() for x in os.getenv("TARGET_SLOTS", "20:00-21:00,21:00-22:00").split(",") if x.strip()]
+# 工作日默认监控晚上 8-9 点和 9-10 点
+WEEKDAY_TARGET_SLOTS = [
+    x.strip()
+    for x in os.getenv("WEEKDAY_TARGET_SLOTS", "20:00-21:00,21:00-22:00").split(",")
+    if x.strip()
+]
+# 周末默认监控下午 5-6 点、6-7 点、7-8 点
+WEEKEND_TARGET_SLOTS = [
+    x.strip()
+    for x in os.getenv("WEEKEND_TARGET_SLOTS", "17:00-18:00,18:00-19:00,19:00-20:00").split(",")
+    if x.strip()
+]
 
 # 查询库存的接口地址模板
 INVENTORY_URL = os.getenv(
@@ -77,8 +113,8 @@ def build_inventory_url(target_date: str) -> str:
     return INVENTORY_URL
 
 
-def fetch_inventory() -> dict:
-    url = build_inventory_url(TARGET_DATE)
+def fetch_inventory(target_date: str) -> dict:
+    url = build_inventory_url(target_date)
     resp = requests.get(
         url,
         headers=HEADERS,
@@ -104,7 +140,10 @@ def parse_inventory(data: dict) -> list[dict]:
             "date": item.get("reservationDate") or payload_date,
             "court_name": item.get("spaceName", ""),
             "slot": slot,
-            "available": not bool(item.get("isBooked", True)),
+            "available": (
+                not bool(item.get("isBooked", True))
+                and int(item.get("reservationStatus", 0)) == 1
+            ),
             "raw": item,
         })
 
@@ -115,15 +154,43 @@ def normalize_court_name(name: str) -> str:
     return name.replace("场地", "").strip()
 
 
+def get_monitor_dates() -> list[str]:
+    today = datetime.now().date()
+    start_date = today + timedelta(days=1)
+    days_until_next_monday = 7 - today.weekday() if today.weekday() != 0 else 7
+    end_date = today + timedelta(days=days_until_next_monday)
+
+    dates = []
+    current_date = start_date
+    while current_date <= end_date:
+        dates.append(current_date.isoformat())
+        current_date += timedelta(days=1)
+    return dates
+
+
+def get_target_slots_for_date(date_str: str) -> list[str]:
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    if date_obj.weekday() < 5:
+        return WEEKDAY_TARGET_SLOTS
+    return WEEKEND_TARGET_SLOTS
+
+
+def fetch_all_inventory() -> list[dict]:
+    all_items = []
+    for target_date in get_monitor_dates():
+        data = fetch_inventory(target_date)
+        all_items.extend(parse_inventory(data))
+    return all_items
+
+
 def filter_targets(items: list[dict]) -> list[dict]:
     matched = []
     normalized_targets = {normalize_court_name(name) for name in TARGET_COURTS}
     for item in items:
-        if item["date"] != TARGET_DATE:
-            continue
         if TARGET_COURTS and normalize_court_name(item["court_name"]) not in normalized_targets:
             continue
-        if TARGET_SLOTS and item["slot"] not in TARGET_SLOTS:
+        target_slots = get_target_slots_for_date(item["date"])
+        if target_slots and item["slot"] not in target_slots:
             continue
         if not item["available"]:
             continue
@@ -152,9 +219,9 @@ def fingerprint(items: list[dict]) -> str:
 
 
 def format_message(items: list[dict]) -> str:
-    lines = [f"发现可预订网球场地，日期：{TARGET_DATE}"]
-    for item in items:
-        lines.append(f'- {item["court_name"]} {item["slot"]}')
+    lines = ["发现可预订网球场地："]
+    for item in sorted(items, key=lambda x: (x["date"], x["slot"], x["court_name"])):
+        lines.append(f'- {item["date"]} {item["court_name"]} {item["slot"]}')
     lines.append(f"监控时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     return "\n".join(lines)
 
@@ -162,16 +229,17 @@ def format_message(items: list[dict]) -> str:
 def main() -> None:
     last_sent_fp = ""
 
+    monitor_dates = get_monitor_dates()
     log("开始监控库存")
-    log(f"目标日期: {TARGET_DATE}")
+    log(f"监控日期范围: {monitor_dates[0]} -> {monitor_dates[-1]}")
     log(f"目标场地: {TARGET_COURTS}")
-    log(f"目标时段: {TARGET_SLOTS}")
+    log(f"工作日时段: {WEEKDAY_TARGET_SLOTS}")
+    log(f"周末时段: {WEEKEND_TARGET_SLOTS}")
     log(f"轮询间隔: {POLL_INTERVAL}s")
 
     while True:
         try:
-            data = fetch_inventory()
-            all_items = parse_inventory(data)
+            all_items = fetch_all_inventory()
             matched = filter_targets(all_items)
 
             if matched:
