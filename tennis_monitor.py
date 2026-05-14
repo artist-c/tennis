@@ -88,16 +88,32 @@ def log(msg: str) -> None:
     print(f"[{now}] {msg}", flush=True)
 
 
-def send_feishu(text: str) -> None:
+def send_feishu(markdown_text: str) -> None:
     if not FEISHU_WEBHOOK or "REPLACE_WITH_REAL_WEBHOOK" in FEISHU_WEBHOOK:
         log("未配置 FEISHU_WEBHOOK，跳过通知")
         return
 
     payload = {
-        "msg_type": "text",
-        "content": {
-            "text": text
-        }
+        "msg_type": "interactive",
+        "card": {
+            "config": {
+                "wide_screen_mode": True,
+                "enable_forward": True,
+            },
+            "header": {
+                "template": "green",
+                "title": {
+                    "tag": "plain_text",
+                    "content": "🎾 发现可预订网球场地啦",
+                },
+            },
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": markdown_text,
+                }
+            ],
+        },
     }
     try:
         resp = requests.post(FEISHU_WEBHOOK, json=payload, timeout=REQUEST_TIMEOUT)
@@ -218,11 +234,37 @@ def fingerprint(items: list[dict]) -> str:
     return hashlib.md5(key.encode("utf-8")).hexdigest()
 
 
+def format_weekday(date_str: str) -> str:
+    weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    return weekday_names[date_obj.weekday()]
+
+
 def format_message(items: list[dict]) -> str:
-    lines = ["发现可预订网球场地："]
+    lines = []
     for item in sorted(items, key=lambda x: (x["date"], x["slot"], x["court_name"])):
-        lines.append(f'- {item["date"]} {item["court_name"]} {item["slot"]}')
-    lines.append(f"监控时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        weekday = format_weekday(item["date"])
+        lines.append(f"• {item['date']} {weekday}")
+        lines.append(f"  {item['court_name']} | {item['slot']}")
+        lines.append("")
+    lines.extend([
+        f"监控时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "快去看看能不能抢到呀 ٩(ˊᗜˋ*)و",
+    ])
+    return "\n".join(lines)
+
+
+def format_feishu_message(items: list[dict]) -> str:
+    lines = []
+    for item in sorted(items, key=lambda x: (x["date"], x["slot"], x["court_name"])):
+        weekday = format_weekday(item["date"])
+        lines.append(f"• {item['date']} **{weekday}**")
+        lines.append(f"  {item['court_name']} | {item['slot']}")
+        lines.append("")
+    lines.extend([
+        f"监控时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "快去看看能不能抢到呀 ٩(ˊᗜˋ*)و",
+    ])
     return "\n".join(lines)
 
 
@@ -246,9 +288,10 @@ def main() -> None:
                 current_fp = fingerprint(matched)
                 if current_fp != last_sent_fp:
                     msg = format_message(matched)
+                    feishu_msg = format_feishu_message(matched)
                     log("发现可用库存，发送通知")
                     log(msg.replace("\n", " | "))
-                    send_feishu(msg)
+                    send_feishu(feishu_msg)
                     last_sent_fp = current_fp
                 else:
                     log("库存仍可用，但和上次通知相同，跳过重复通知")
