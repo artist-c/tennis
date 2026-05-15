@@ -172,7 +172,7 @@ def normalize_court_name(name: str) -> str:
 
 def get_monitor_dates() -> list[str]:
     today = datetime.now().date()
-    start_date = today + timedelta(days=1)
+    start_date = today
     days_until_next_monday = 7 - today.weekday() if today.weekday() != 0 else 7
     end_date = today + timedelta(days=days_until_next_monday)
 
