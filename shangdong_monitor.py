@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from urllib.parse import quote
 
 import requests
 
@@ -53,72 +53,55 @@ def normalize_slot(slot: str) -> str:
     return f"{normalize_time_text(parts[0])}-{normalize_time_text(parts[1])}"
 
 
-def parse_datetime_text(value: str) -> Optional[datetime]:
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-    return None
-
-
-def build_slot(start_text: str, end_text: str) -> str:
-    start_dt = parse_datetime_text(start_text)
-    end_dt = parse_datetime_text(end_text)
-    if not start_dt or not end_dt:
-        return ""
-
-    if end_dt.minute == 59 and end_dt.second == 0:
-        end_dt += timedelta(minutes=1)
-
-    return f"{start_dt.strftime('%H:%M')}-{end_dt.strftime('%H:%M')}"
-
-
 load_dotenv()
 
 
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "20"))
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
-VENUE_NAME = os.getenv("LANGUAN_VENUE_NAME", "兰观")
+VENUE_NAME = os.getenv("SHANGDONG_VENUE_NAME", "上东体育中心")
 TARGET_COURTS = [
-    x.strip() for x in os.getenv("LANGUAN_TARGET_COURTS", os.getenv("TARGET_COURTS", "")).split(",") if x.strip()
-]
-LANGUAN_WEEKDAY_TARGET_SLOTS = [
-    normalize_slot(x.strip())
-    for x in os.getenv("LANGUAN_WEEKDAY_TARGET_SLOTS", "20:00-21:00,21:00-22:00").split(",")
+    x.strip()
+    for x in os.getenv("SHANGDONG_TARGET_COURTS", "").split(",")
     if x.strip()
 ]
-WEEKEND_TARGET_SLOTS = [
+# 工作日：晚 20:00-21:00
+SHANGDONG_WEEKDAY_TARGET_SLOTS = [
     normalize_slot(x.strip())
-    for x in os.getenv("WEEKEND_TARGET_SLOTS", "18:00-19:00,19:00-20:00,20:00-21:00").split(",")
+    for x in os.getenv("SHANGDONG_WEEKDAY_TARGET_SLOTS", "20:00-21:00").split(",")
     if x.strip()
 ]
-LANGUAN_INVENTORY_URL = os.getenv(
-    "LANGUAN_INVENTORY_URL",
-    "https://wxservice-stg48.pospal.cn/wxapi/AppointmentVenue/LoadValidClassRoomApptSettingV2",
+# 周末：18:00-21:00
+SHANGDONG_WEEKEND_TARGET_SLOTS = [
+    normalize_slot(x.strip())
+    for x in os.getenv(
+        "SHANGDONG_WEEKEND_TARGET_SLOTS",
+        "18:00-19:00,19:00-20:00,20:00-21:00",
+    ).split(",")
+    if x.strip()
+]
+SHANGDONG_INVENTORY_URL = os.getenv(
+    "SHANGDONG_INVENTORY_URL",
+    "https://stmember.styd.cn/v1/venues/venues_site_list",
 )
-LANGUAN_PROJECT_UID = os.getenv("LANGUAN_PROJECT_UID", "1741574043214936056")
-LANGUAN_STORE_ID = os.getenv("LANGUAN_STORE_ID", "5819221")
-LANGUAN_VISITOR_ID = os.getenv(
-    "LANGUAN_VISITOR_ID",
-    "BVYGXwpnAmBXZlJuXjQOPwg7AzcJZA9hCWgLPV01BzFVNAAwD2YHYQA2UmwNPwo+BWICZFhhWjQCM1YxUjZQZAVkBjc=",
+SHANGDONG_VENUE_ID = os.getenv("SHANGDONG_VENUE_ID", "2446145037664310")
+SHANGDONG_SHOP_ID = os.getenv("SHANGDONG_SHOP_ID", "2445179626300102")
+SHANGDONG_BRAND_CODE = os.getenv("SHANGDONG_BRAND_CODE", "4p6knKByJqm")
+SHANGDONG_WX_TOKEN = os.getenv("SHANGDONG_WX_TOKEN", "FUo1SU3F_UllPhCIh_bZQirDFiXxUuD9")
+SHANGDONG_REFERER = os.getenv(
+    "SHANGDONG_REFERER",
+    "https://servicewechat.com/wxac417392155a720c/14/page-frame.html",
 )
-LANGUAN_VERSION_INFO = os.getenv("LANGUAN_VERSION_INFO", "NC|2025.09.15")
-LANGUAN_REFERER = os.getenv(
-    "LANGUAN_REFERER",
-    "https://servicewechat.com/wxd8e3cbba9e327fc0/8/page-frame.html",
-)
-FEISHU_WEBHOOK = os.getenv("LANGUAN_WEBHOOK", "")
+SHANGDONG_PAGE_SIZE = int(os.getenv("SHANGDONG_PAGE_SIZE", "20"))
+SHANGDONG_DAYS_AHEAD = int(os.getenv("SHANGDONG_DAYS_AHEAD", "7"))
 INCLUDE_TODAY = getenv_bool("INCLUDE_TODAY", True)
-LANGUAN_DAYS_AHEAD = int(os.getenv("LANGUAN_DAYS_AHEAD", "7"))
+FEISHU_WEBHOOK = os.getenv("SHANGDONG_WEBHOOK", "")
 
-LANGUAN_HEADERS = {
-    "psplvisitorauto": "API",
-    "versioninfo": LANGUAN_VERSION_INFO,
-    "storeid": LANGUAN_STORE_ID,
+SHANGDONG_HEADERS = {
+    "client-timezone": "+0800",
+    "brand-code": SHANGDONG_BRAND_CODE,
     "xweb_xhr": "1",
-    "apptype": "1",
-    "psplvisitorid": LANGUAN_VISITOR_ID,
+    "shop-id": SHANGDONG_SHOP_ID,
+    "theme-compatible": "1",
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 "
@@ -126,15 +109,17 @@ LANGUAN_HEADERS = {
         "MacWechat/WMPF MacWechat/3.8.7(0x13080712) "
         "UnifiedPCMacWechat(0xf2641702) XWEB/18788"
     ),
-    "Content-Type": "application/json",
+    "mina-version": "independent",
+    "app-id": "mina",
+    "wx-token": SHANGDONG_WX_TOKEN,
     "Accept": "*/*",
     "sec-fetch-site": "cross-site",
     "sec-fetch-mode": "cors",
     "sec-fetch-dest": "empty",
-    "Referer": LANGUAN_REFERER,
-    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": SHANGDONG_REFERER,
     "Accept-Language": "zh-CN,zh;q=0.9",
     "priority": "u=1, i",
+    "Content-Type": "application/json",
 }
 
 
@@ -145,7 +130,7 @@ def log(msg: str) -> None:
 
 def send_feishu(markdown_text: str) -> None:
     if not FEISHU_WEBHOOK or "REPLACE_WITH_REAL_WEBHOOK" in FEISHU_WEBHOOK:
-        log("未配置 FEISHU_WEBHOOK，跳过通知")
+        log("未配置 SHANGDONG_WEBHOOK，跳过通知")
         return
 
     payload = {
@@ -182,7 +167,7 @@ def normalize_court_name(name: str) -> str:
 def get_monitor_dates() -> list[str]:
     today = datetime.now().date()
     start_date = today if INCLUDE_TODAY else today + timedelta(days=1)
-    end_date = today + timedelta(days=LANGUAN_DAYS_AHEAD)
+    end_date = today + timedelta(days=SHANGDONG_DAYS_AHEAD)
 
     dates = []
     current_date = start_date
@@ -195,49 +180,61 @@ def get_monitor_dates() -> list[str]:
 def get_target_slots_for_date(date_str: str) -> list[str]:
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     if date_obj.weekday() < 5:
-        return LANGUAN_WEEKDAY_TARGET_SLOTS
-    return WEEKEND_TARGET_SLOTS
+        return SHANGDONG_WEEKDAY_TARGET_SLOTS
+    return SHANGDONG_WEEKEND_TARGET_SLOTS
 
 
-def fetch_inventory(target_date: str) -> dict:
-    resp = requests.post(
-        LANGUAN_INVENTORY_URL,
-        headers=LANGUAN_HEADERS,
-        json={
-            "dateTime": target_date,
-            "projectUid": LANGUAN_PROJECT_UID,
-            "userId": None,
-        },
-        timeout=REQUEST_TIMEOUT,
+def fetch_inventory_page(target_date: str, page: int) -> dict:
+    # 接口要求 date 形如 2026/06/06
+    date_param = quote(target_date.replace("-", "/"), safe="")
+    url = (
+        f"{SHANGDONG_INVENTORY_URL}?id={SHANGDONG_VENUE_ID}"
+        f"&date={date_param}&page={page}&size={SHANGDONG_PAGE_SIZE}"
     )
+    resp = requests.get(url, headers=SHANGDONG_HEADERS, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
 
-def parse_inventory(data: dict) -> list[dict]:
+def fetch_inventory(target_date: str) -> list[dict]:
+    data = fetch_inventory_page(target_date, 1)
+    if int(data.get("code", -1)) != 0:
+        log(f"接口异常: date={target_date} resp={data}")
+        return []
+    payload = data.get("data") or {}
+    return payload.get("list") or []
+
+
+def parse_inventory(target_date: str, sites: list[dict]) -> list[dict]:
     results = []
-    payload = data.get("result") or {}
-    for item in payload.get("slots", []):
-        start_text = item.get("beginDatetime", "")
-        start_dt = parse_datetime_text(start_text)
-        results.append(
-            {
-                "venue_name": VENUE_NAME,
-                "date": start_dt.strftime("%Y-%m-%d") if start_dt else "",
-                "court_name": item.get("classRoomName", ""),
-                "slot": build_slot(start_text, item.get("endDatetime", "")),
-                "available": int(item.get("status", -1)) == 0,
-                "raw": item,
-            }
-        )
+    for site in sites:
+        court_name = site.get("site_name", "")
+        for slot_item in site.get("site_data") or []:
+            start_time = slot_item.get("start_time", "")
+            end_time = slot_item.get("end_time", "")
+            slot = (
+                f"{normalize_time_text(start_time)}-{normalize_time_text(end_time)}"
+                if start_time and end_time
+                else ""
+            )
+            results.append(
+                {
+                    "venue_name": VENUE_NAME,
+                    "date": target_date,
+                    "court_name": court_name,
+                    "slot": slot,
+                    "available": int(slot_item.get("status", -1)) == 2,
+                    "raw": slot_item,
+                }
+            )
     return results
 
 
 def fetch_all_inventory() -> list[dict]:
-    all_items = []
+    all_items: list[dict] = []
     for target_date in get_monitor_dates():
-        data = fetch_inventory(target_date)
-        all_items.extend(parse_inventory(data))
+        sites = fetch_inventory(target_date)
+        all_items.extend(parse_inventory(target_date, sites))
     return all_items
 
 
@@ -337,14 +334,20 @@ def main() -> None:
 
     monitor_dates = get_monitor_dates()
     log(f"开始监控 {VENUE_NAME} 场地库存")
-    log(f"监控日期范围: {monitor_dates[0]} -> {monitor_dates[-1]}")
+    log(f"监控日期范围: {monitor_dates[0]} -> {monitor_dates[-1]}（共 {len(monitor_dates)} 天）")
+    log(f"监控日期明细: {monitor_dates}")
     log(f"目标场地: {TARGET_COURTS}")
-    log(f"工作日时段: {LANGUAN_WEEKDAY_TARGET_SLOTS}")
-    log(f"周末时段: {WEEKEND_TARGET_SLOTS}")
+    log(f"工作日时段: {SHANGDONG_WEEKDAY_TARGET_SLOTS}")
+    log(f"周末时段: {SHANGDONG_WEEKEND_TARGET_SLOTS}")
     log(f"轮询间隔: {POLL_INTERVAL}s")
 
     while True:
         try:
+            current_dates = get_monitor_dates()
+            log(
+                f"本轮监控日期: {current_dates[0]} -> {current_dates[-1]}"
+                f"（共 {len(current_dates)} 天）"
+            )
             all_items = fetch_all_inventory()
             matched = filter_targets(all_items)
 
