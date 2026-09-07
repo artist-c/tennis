@@ -344,6 +344,7 @@ def main() -> None:
     while True:
         try:
             current_dates = get_monitor_dates()
+            log(f"开始监控 {VENUE_NAME} 场地库存")
             log(
                 f"本轮监控日期: {current_dates[0]} -> {current_dates[-1]}"
                 f"（共 {len(current_dates)} 天）"

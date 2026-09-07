@@ -44,13 +44,13 @@ TARGET_COURTS = [x.strip() for x in os.getenv("TARGET_COURTS", "").split(",") if
 # 工作日默认监控晚上 8-9 点和 9-10 点
 WEEKDAY_TARGET_SLOTS = [
     x.strip()
-    for x in os.getenv("HUITI_WEEKDAY_TARGET_SLOTS", "08:00-09:00").split(",")
+    for x in os.getenv("WEEKDAY_TARGET_SLOTS", "20:00-21:00,21:00-22:00").split(",")
     if x.strip()
 ]
 # 周末默认监控下午 5-6 点、6-7 点、7-8 点
 WEEKEND_TARGET_SLOTS = [
     x.strip()
-    for x in os.getenv("HUITI_WEEKEND_TARGET_SLOTS", "17:00-18:00,18:00-19:00").split(",")
+    for x in os.getenv("WEEKEND_TARGET_SLOTS", "17:00-18:00,18:00-19:00,19:00-20:00").split(",")
     if x.strip()
 ]
 
@@ -62,8 +62,8 @@ INVENTORY_URL = os.getenv(
 
 # 通知方式：这里用飞书机器人 webhook，换成企业微信/钉钉/Server酱也很容易
 FEISHU_WEBHOOK = os.getenv(
-    "FEISHU_WEBHOOK",
-    "https://open.larkoffice.com/open-apis/bot/v2/hook/e674aa78-0bc6-4653-97cc-c8c5b1a8e888",
+    "HUITI_WEBHOOK",
+    "https://open.larkoffice.com/open-apis/bot/v2/hook/4d23b9f7-75bf-4d74-a2e9-387d87f150aa",
 )
 
 # 请求头按抓包结果填写
@@ -273,9 +273,10 @@ def main() -> None:
 
     monitor_dates = get_monitor_dates()
     log("开始监控库存")
+    log("监控场地：回体")
     log(f"监控日期范围: {monitor_dates[0]} -> {monitor_dates[-1]}（共 {len(monitor_dates)} 天）")
     log(f"监控日期明细: {monitor_dates}")
-    log(f"目标场地: {TARGET_COURTS}")
+    log(f"目标场地: {TARGET_COURTS or '全部场地'}")
     log(f"工作日时段: {WEEKDAY_TARGET_SLOTS}")
     log(f"周末时段: {WEEKEND_TARGET_SLOTS}")
     log(f"轮询间隔: {POLL_INTERVAL}s")
@@ -283,10 +284,13 @@ def main() -> None:
     while True:
         try:
             current_dates = get_monitor_dates()
+            log("监控场地：回体")
             log(
                 f"本轮监控日期: {current_dates[0]} -> {current_dates[-1]}"
                 f"（共 {len(current_dates)} 天）"
             )
+            log(f"工作日时段: {WEEKDAY_TARGET_SLOTS}")
+            log(f"周末时段: {WEEKEND_TARGET_SLOTS}")
             all_items = fetch_all_inventory()
             matched = filter_targets(all_items)
 
