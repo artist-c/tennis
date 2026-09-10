@@ -1,0 +1,53 @@
+.env
+  s_95330eea58e2e2::t_757177d3256f6f 60
+  h_c93d997b2dd531 1-59,61-63 gitai:{"mixed_line_ranges":[{"Single":4}],"operations":[]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3f022609fe4bda1ce312221030ef8622c2947104",
+  "prompts": {},
+  "humans": {
+    "h_c93d997b2dd531": {
+      "author": "xuyuhan <xuyuhan.qxnt@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_95330eea58e2e2": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-f054a1ad-2320-4359-a476-c7199f7c6196",
+        "model": "default"
+      },
+      "human_author": "xuyuhan <xuyuhan.qxnt@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {
+    ".env": [
+      {
+        "hash": "h_c93d997b2dd531",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              59
+            ]
+          },
+          {
+            "Range": [
+              61,
+              63
+            ]
+          }
+        ],
+        "mixed_line_ranges": [
+          {
+            "Single": 4
+          }
+        ],
+        "operations": []
+      }
+    ]
+  },
+  "remote_transcripts": {}
+}
